@@ -28,7 +28,7 @@
 ### 필수 규칙
 1. **모델 동일**: 모든 실험에서 동일한 LLM 모델을 사용한다.
 2. **테스트셋 동일**: 공식 테스트셋만 사용한다. (임의 분할 금지)
-3. **평가 스크립트 동일**: 제공된 `scripts/eval.py`를 사용한다.
+3. **평가 스크립트**: 팀별 구현 (`scripts/eval.py` 권장 위치). 평가 로직(정답률 계산)은 동일해야 한다.
 4. **프롬프트/하이퍼파라미터 동일**: No-RAG와 RAG 간 차이는 **retrieved context 유무만** 허용한다.
 5. **데이터/키 커밋 금지**: `data/`, `.env`는 절대 커밋하지 않는다.
 
@@ -38,6 +38,17 @@ No-RAG: [System Prompt] + [Question]
 RAG:    [System Prompt] + [Retrieved Context] + [Question]
 ```
 - 위 구조 외의 차이(temperature, max_tokens 등)는 허용되지 않는다.
+
+### 팀별 자유 (비교 대상)
+다음 항목은 팀별로 자유롭게 구현한다:
+- 전처리, chunking, metadata 구성
+- Retrieval/Rerank 전략
+- **RAG 컨텍스트 포맷팅** (조문 인용 형식, 메타데이터 포함 여부 등)
+- 벡터DB/인덱스 선택
+- 파이프라인 구현 디테일
+
+> 프롬프트의 **베이스 구조**(System Prompt + Question)는 고정이지만,
+> **Retrieved Context를 어떻게 구성하는지**는 팀별 자유다.
 
 ---
 
@@ -65,11 +76,11 @@ rag-battle-template/
 
 | 폴더 | 역할 | Git 포함 |
 |------|------|----------|
-| `src/` | 핵심 로직 (retriever, model wrapper 등) | ✅ |
-| `scripts/` | CLI 실행 스크립트 | ✅ |
-| `configs/` | 실험 설정 파일 | ✅ |
-| `report/` | 결과물 저장소 | ✅ |
-| `data/` | 테스트셋, 인덱스 (**민감 데이터**) | ❌ |
+| `src/` | (선택) 공통 라이브러리 코드 위치(팀 레포에서 확장) | ✅ |
+| `scripts/` | 실행/평가 entrypoints (CLI) | ✅ |
+| `configs/` | 실험 설정 스냅샷/예시 (yaml/json) | ✅ |
+| `report/` | 결과/리포트(커밋 대상) | ✅ |
+| `data/` | 실험 데이터/인덱스/캐시 (git 추적 제외) | ❌ |
 
 > ⚠️ **중요**: `data/` 폴더는 `.gitignore`에 포함되어 있으며, **로컬에서만 관리**한다.
 > 테스트셋 정답 유출 및 라이선스 위반 방지를 위함이다.
@@ -77,6 +88,18 @@ rag-battle-template/
 ---
 
 ## D. 데이터 준비
+
+### 공통 Retriever 원천 데이터
+법령정보 오픈 API([open.law.go.kr](https://open.law.go.kr))에서 다음 5개 대상을 **전량 수집**하여 공유한다:
+| target | 설명 |
+|--------|------|
+| `law` | 현행법령 목록 + 상세(조문/부칙/개정문) |
+| `prec` | 판례 목록 + 상세(전문/요지/판시사항) |
+| `expc` | 법령해석 목록 + 상세 |
+| `lstrm` | 법률용어사전 목록 + 상세(정의) |
+| `detc` | 결정례 목록 + 상세 |
+
+> 전량수집 기준 및 버전은 `manifest.json`으로 확정/공유한다 (버전 태깅 필수).
 
 ### 1. 환경 변수 설정
 ```bash
@@ -130,6 +153,7 @@ for kor_name, eng_name in subject_map.items():
 ```bash
 pip install -r requirements.txt
 ```
+> `requirements.txt`는 최소 공통 의존성만 포함한다. 팀별로 필요한 패키지(langchain, chromadb, faiss 등)는 각자 추가한다.
 
 ### 2. No-RAG 실행
 ```bash
@@ -175,9 +199,9 @@ report/
 ## F. 산출물 규격
 
 ### report/metrics.json 예시
-```json
+```jsonc
 {
-  "model": "gpt-4o-mini",
+  "model": "<TBD: gemini-2.0-flash 등 확정 후 기입>",
   "run_name": "baseline-v1",
   "timestamp": "2025-02-03T10:00:00+09:00",
   "subjects": {
@@ -185,26 +209,26 @@ report/
       "no_rag_accuracy": 0.72,
       "rag_accuracy": 0.81,
       "delta_accuracy": 0.09,
-      "total_questions": 150
+      "total_questions": 70   // 민사법
     },
     "criminal": {
       "no_rag_accuracy": 0.68,
       "rag_accuracy": 0.77,
       "delta_accuracy": 0.09,
-      "total_questions": 120
+      "total_questions": 40   // 형사법
     },
     "public": {
       "no_rag_accuracy": 0.65,
       "rag_accuracy": 0.74,
       "delta_accuracy": 0.09,
-      "total_questions": 100
+      "total_questions": 40   // 공법
     }
   },
   "overall": {
     "no_rag_accuracy": 0.69,
     "rag_accuracy": 0.78,
     "delta_accuracy": 0.09,
-    "total_questions": 370
+    "total_questions": 150   // 총 150문항
   }
 }
 ```
@@ -215,7 +239,7 @@ report/
 3. **설계 포인트** (3~5개):
    - Retriever 구조 (chunk size, overlap, top-k 등)
    - Embedding 모델
-   - Prompt 설계 특이점
+   - RAG 컨텍스트 포맷팅 (조문 인용 형식, 메타데이터 구성 등)
    - Index 구축 방법
    - 기타 최적화 기법
 
@@ -240,12 +264,6 @@ report/
 
 ---
 
-## 라이선스
-
-MIT License (또는 프로젝트에 맞게 수정)
-
----
-
 ## 문의
 
-이슈를 통해 질문이나 제안을 남기면 된다.
+디스코드 채널 활용
