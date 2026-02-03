@@ -147,7 +147,7 @@ for kor_name, eng_name in subject_map.items():
 
 ---
 
-## E. 실행 방법
+## E. 실행 방법 (예시임. 파일명을 꼭 똑같이 할 필요 x)
 
 ### 1. 의존성 설치
 ```bash
